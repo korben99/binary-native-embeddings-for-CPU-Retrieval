@@ -44,17 +44,20 @@ def pack_binary(vecs: np.ndarray) -> np.ndarray:
     return np.packbits((vecs > 0).astype(np.uint8), axis=1)
 
 
-def binary_search(q_packed: np.ndarray, db_packed: np.ndarray, k: int = 10) -> np.ndarray:
+def binary_search(q_packed: np.ndarray, db_packed: np.ndarray, k: int = 10,
+                  chunk: int = 8_000) -> np.ndarray:
     """
-    Hamming distance search via bitwise XOR + popcount lookup table.
-    Processes one query at a time to keep peak memory at N×512 bytes.
+    Hamming distance search — fully vectorised over Q and chunked over N.
+    Per chunk: [Q, chunk, B] XOR then popcount lookup → no Python inner loop.
+    Peak memory ≈ Q × chunk × B bytes (16 × 8k × 512 = 64 MB).
     """
     Q = len(q_packed)
     N = len(db_packed)
     distances = np.empty((Q, N), dtype=np.int32)
-    for i in range(Q):
-        xor = q_packed[i : i + 1] ^ db_packed        # [N, bytes]
-        distances[i] = POPCOUNT[xor].sum(axis=1)      # Hamming distance
+    for start in range(0, N, chunk):
+        end = min(start + chunk, N)
+        xor = q_packed[:, None, :] ^ db_packed[None, start:end, :]  # [Q, chunk, B]
+        distances[:, start:end] = POPCOUNT[xor].sum(axis=2)
     return np.argpartition(distances, k, axis=1)[:, :k]
 
 
@@ -166,7 +169,7 @@ def main():
         float_ms  = bench(float_search,  float_seeds,         float_corpus,  10)
         binary_ms = bench(binary_search, binary_seeds_packed, binary_corpus, 10)
 
-        speedup   = float_ms  / binary_ms
+        speedup   = float_ms / binary_ms   # >1 = binary faster, <1 = binary slower
         mem_ratio = float_mem_mb / binary_mem_mb
 
         results[str(n)] = {
@@ -179,9 +182,10 @@ def main():
             "speedup_x":        round(speedup, 1),
         }
 
+        ratio_str = f"{speedup:.1f}x faster" if speedup >= 1 else f"{1/speedup:.1f}x slower"
         print(f"  Float:  {float_ms:8.2f} ms  |  {float_mem_mb:6.0f} MB")
         print(f"  Binary: {binary_ms:8.2f} ms  |  {binary_mem_mb:6.2f} MB (packed bits)")
-        print(f"  => {speedup:.1f}x faster retrieval  |  {mem_ratio:.0f}x smaller index")
+        print(f"  => binary {ratio_str} than float  |  {mem_ratio:.0f}x smaller index")
 
     RESULTS_DIR.mkdir(exist_ok=True)
     machine_slug = platform.machine().lower()          # arm64 / x86_64
@@ -189,18 +193,22 @@ def main():
     out.write_text(json.dumps(results, indent=2))
     print(f"\nResults -> {out}")
 
-    print("\n" + "=" * 72)
-    print(f"{'Scale':>12} | {'Float (ms)':>10} | {'Binary (ms)':>11} | {'Speedup':>8} | {'Mem ratio':>10}")
-    print("-" * 72)
-    for _, r in results.items():
+    print("\n" + "=" * 76)
+    print(f"{'Scale':>12} | {'Float (ms)':>10} | {'Binary (ms)':>11} | {'vs Float':>10} | {'Mem ratio':>10}")
+    print("-" * 76)
+    for n_str, r in results.items():
+        if n_str == "platform":
+            continue
+        s = r["speedup_x"]
+        vs = f"{s:.1f}x faster" if s >= 1 else f"{1/s:.1f}x slower"
         print(
             f"{r['n_vectors']:>12,} | {r['float_search_ms']:>10.2f} | "
-            f"{r['binary_search_ms']:>11.2f} | {r['speedup_x']:>7.1f}x | "
+            f"{r['binary_search_ms']:>11.2f} | {vs:>10} | "
             f"{r['mem_ratio_x']:>9.0f}x"
         )
-    print("=" * 72)
-    print("\nNote: a FAISS IndexBinaryFlat with hardware POPCNT would show 3-5x")
-    print("additional speedup on top of these numpy results.")
+    print("=" * 76)
+    print("\nNote: hardware POPCNT (FAISS IndexBinaryFlat) would show additional speedup.")
+    print("Numpy binary search is memory-bandwidth bound; BLAS float matmul uses SIMD.")
 
 
 if __name__ == "__main__":
