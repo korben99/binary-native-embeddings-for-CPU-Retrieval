@@ -57,7 +57,7 @@ Intel Core Ultra 7 155H · FAISS `IndexBinaryFlat` (AVX2 + POPCNT) vs `IndexFlat
 
 **2048-dim is the sweet spot**: 6× smaller index, 12× faster retrieval at 1M vectors, +17% Recall@10 over post-hoc — all on CPU, no GPU.
 
-note: float is using IndexFlatIP (consine) and binary is using IndexBinaryFlat (hamming distance) wich are different metrics but timing are comparable for measuring ranking latency on 1M vectors.
+> **Note:** float uses `IndexFlatIP` (cosine similarity) and binary uses `IndexBinaryFlat` (Hamming distance) — different metrics, but timings are comparable for measuring ranking latency at scale.
 
 ### Why POPCNT changes everything
 
@@ -148,7 +148,7 @@ Native binary training gives the model three advantages:
 ## Quick start
 
 ```bash
-git clone https://github.com/korben99/binary-native-embeddings
+git clone https://github.com/korben99/binary-native-embeddings-for-CPU-Retrieval
 cd binary-native-embeddings
 python3.13 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -255,6 +255,12 @@ binary-native-embeddings/
 - [`korben99/bne-float-384`](https://huggingface.co/korben99/bne-float-384) — float32 baseline
 - [`korben99/bne-binary-2048`](https://huggingface.co/korben99/bne-binary-2048) — **recommended**
 - [`korben99/bne-binary-4096`](https://huggingface.co/korben99/bne-binary-4096)
+
+---
+
+## Discussion
+
+Feedback and questions on the [HuggingFace forum thread](https://discuss.huggingface.co/t/native-binary-embeddings-experiment-curious-about-your-thoughts/177107).
 
 ---
 
