@@ -8,7 +8,6 @@ build/
 plan_action_binary_embeddings.md
 # données et checkpoints (lourds, pas dans git)
 data_cache/
-checkpoints/*.pt
 *.log
 
 # secrets

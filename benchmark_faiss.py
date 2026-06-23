@@ -19,6 +19,12 @@ from transformers import BertTokenizer
 
 load_dotenv()
 
+# Corporate proxy / self-signed cert fix: set CURL_CA_BUNDLE= in .env
+import os as _os
+if _os.environ.get("CURL_CA_BUNDLE", "NOT_SET") == "":
+    import ssl as _ssl
+    _ssl._create_default_https_context = _ssl._create_unverified_context
+
 BASE_DIR     = Path(__file__).parent
 RESULTS_DIR  = BASE_DIR / "results"
 FLOAT_DIM    = 384

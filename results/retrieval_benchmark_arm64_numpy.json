@@ -1,0 +1,31 @@
+{
+  "platform": "jarvis | arm | Python 3.13.12 | backend: NumPy (no hardware POPCNT)",
+  "backend": "NumPy (no hardware POPCNT)",
+  "10000": {
+    "n_vectors": 10000,
+    "float_mem_mb": 15.4,
+    "binary_mem_mb": 5.12,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 2.2,
+    "binary_search_ms": 76.57,
+    "vs_float": "34.8x slower"
+  },
+  "100000": {
+    "n_vectors": 100000,
+    "float_mem_mb": 153.6,
+    "binary_mem_mb": 51.2,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 25.76,
+    "binary_search_ms": 770.03,
+    "vs_float": "29.9x slower"
+  },
+  "1000000": {
+    "n_vectors": 1000000,
+    "float_mem_mb": 1536.0,
+    "binary_mem_mb": 512.0,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 238.39,
+    "binary_search_ms": 7751.73,
+    "vs_float": "32.5x slower"
+  }
+}
