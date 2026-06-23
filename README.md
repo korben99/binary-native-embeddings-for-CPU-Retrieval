@@ -57,6 +57,8 @@ Intel Core Ultra 7 155H · FAISS `IndexBinaryFlat` (AVX2 + POPCNT) vs `IndexFlat
 
 **2048-dim is the sweet spot**: 6× smaller index, 12× faster retrieval at 1M vectors, +17% Recall@10 over post-hoc — all on CPU, no GPU.
 
+note: float is using IndexFlatIP (consine) and binary is using IndexBinaryFlat (hamming distance) wich are different metrics but timing are comparable for measuring ranking latency on 1M vectors.
+
 ### Why POPCNT changes everything
 
 | | Float32 (384-dim) | Binary (2048-dim, POPCNT) |
