@@ -39,7 +39,7 @@ POPCOUNT = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 # Force numpy backend there; use FAISS only on x86_64 where the wheel works.
 try:
     import faiss
-    HAVE_FAISS = platform.machine() == "x86_64"
+    HAVE_FAISS = platform.machine() != "arm64"   # arm64 = Apple Silicon (pip wheel segfaults)
 except ImportError:
     HAVE_FAISS = False
 

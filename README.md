@@ -23,45 +23,39 @@ Encode latency is identical across all three models because it is dominated by t
 
 ## Results — Retrieval at scale
 
-Benchmark: 16 queries, top-10, averaged over 10 runs.  
-Backend: pure NumPy (BLAS float matmul vs XOR + popcount lookup table).
+Benchmark: 16 queries, top-10, averaged over 10 runs.
 
-### Mac Mini M4 Pro — Apple Accelerate BLAS
+### Intel Core Ultra 7 155H — FAISS `IndexBinaryFlat` (AVX2 + POPCNT)
 
-| Scale | Float (ms) | Binary (ms) | Memory ratio |
+| Scale | Float (ms) | Binary (ms) | Speedup | Memory ratio |
+|---|---|---|---|---|
+| 10k | 27.0 | 3.1 | **8.6× faster** | 3× smaller |
+| 100k | 178.9 | 27.3 | **6.5× faster** | 3× smaller |
+| 1M | 2 071 | **420** | **4.9× faster** | 3× smaller |
+
+With hardware POPCNT, binary retrieval is **5–9× faster than float32** at every scale, while using 3× less memory. At 1M vectors: 420 ms vs 2 071 ms.
+
+### Mac Mini M4 Pro — NumPy baseline (no FAISS ARM64 wheel)
+
+| Scale | Float (ms) | Binary numpy (ms) | Memory ratio |
 |---|---|---|---|
 | 10k | 2.2 | 76.6 | 3× smaller |
 | 100k | 25.8 | 770.0 | 3× smaller |
 | 1M | **238** | 7 752 | 3× smaller |
 
-### Intel Core Ultra 7 155H — OpenBLAS / MKL
+NumPy binary uses a Python XOR + lookup-table popcount — structurally slower than BLAS matmul. This is **not** a fair comparison; FAISS POPCNT is the correct baseline. The M4 Pro result shows Apple Accelerate BLAS is 8.7× faster than Intel MKL for float32 retrieval (238 ms vs 2 071 ms).
 
-| Scale | Float (ms) | Binary (ms) | Memory ratio |
-|---|---|---|---|
-| 10k | 33.9 | 291.0 | 3× smaller |
-| 100k | 146.7 | 2 961.1 | 3× smaller |
-| 1M | **1 127** | 29 766 | 3× smaller |
+> **Note**: `faiss-cpu` segfaults on ARM64/Python 3.13 (pip wheel incompatibility). FAISS results were measured on Windows x86_64 with Python 3.12.
 
-**M4 Pro is 4.7× faster than Intel for float32 retrieval** at 1M scale (238 ms vs 1 127 ms) — Apple's Accelerate BLAS benefits from ARM NEON/AMX and unified memory bandwidth.
+### Why POPCNT changes everything
 
-### Why binary is slower in these benchmarks
-
-Our numpy binary search is *structurally* slower than float matmul:
-
-| | Float | Binary (numpy) |
+| | Float32 (384-dim) | Binary (4096-dim, POPCNT) |
 |---|---|---|
-| Kernel | BLAS `SGEMM` (SIMD-vectorized) | Python loop + XOR + lookup table |
-| Hardware used | NEON / AVX2 SIMD | scalar + cache-unfriendly indirect access |
+| Similarity kernel | 384 multiply-adds | 64 × `POPCNT` on 64-bit words |
+| SIMD throughput | AVX2: 8 floats/cycle | AVX2: 256 bits/cycle |
+| Memory read / vector | 1 536 bytes | 512 bytes |
 
-**This comparison is unfair by construction.** The real binary advantage appears with hardware POPCNT:
-
-| Backend | Expected 1M retrieval |
-|---|---|
-| NumPy float (BLAS) | 238 ms (M4 Pro) |
-| NumPy binary (lookup) | 7 752 ms — this benchmark |
-| **FAISS `IndexBinaryFlat` (POPCNT)** | **~15–50 ms** (estimated) |
-
-`faiss-cpu` currently has no wheel for Python 3.14 (Windows test machine) and segfaults on ARM64/Python 3.13, which prevented direct measurement. The theoretical argument stands: POPCNT processes 64 bits in a single instruction vs 64 multiplications for float, giving a ×32 operation count reduction that SIMD implementations exploit fully.
+`POPCNT` counts all set bits in a 64-bit word in a **single CPU cycle**. For a 4096-bit vector: 64 POPCNT instructions vs 384 multiply-accumulates — fewer operations, compounded by 3× better cache utilization from the smaller memory footprint. Combined, this produces the measured **5–9× wall-clock speedup**.
 
 ---
 

@@ -1,0 +1,31 @@
+{
+  "platform": "EU-H3JH294 | Intel64 Family 6 Model 170 Stepping 4, GenuineIntel | Python 3.12.10 | backend: FAISS (AVX2+POPCNT)",
+  "backend": "FAISS (AVX2+POPCNT)",
+  "10000": {
+    "n_vectors": 10000,
+    "float_mem_mb": 15.4,
+    "binary_mem_mb": 5.12,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 27.01,
+    "binary_search_ms": 3.14,
+    "vs_float": "8.6x faster"
+  },
+  "100000": {
+    "n_vectors": 100000,
+    "float_mem_mb": 153.6,
+    "binary_mem_mb": 51.2,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 178.94,
+    "binary_search_ms": 27.34,
+    "vs_float": "6.5x faster"
+  },
+  "1000000": {
+    "n_vectors": 1000000,
+    "float_mem_mb": 1536.0,
+    "binary_mem_mb": 512.0,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 2070.67,
+    "binary_search_ms": 420.39,
+    "vs_float": "4.9x faster"
+  }
+}
