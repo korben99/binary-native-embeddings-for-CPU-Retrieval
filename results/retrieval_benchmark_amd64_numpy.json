@@ -1,0 +1,31 @@
+{
+  "platform": "EU-H3JH294 | Intel64 Family 6 Model 170 Stepping 4, GenuineIntel | Python 3.14.3 | backend: NumPy (no hardware POPCNT)",
+  "backend": "NumPy (no hardware POPCNT)",
+  "10000": {
+    "n_vectors": 10000,
+    "float_mem_mb": 15.4,
+    "binary_mem_mb": 5.12,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 33.86,
+    "binary_search_ms": 290.95,
+    "vs_float": "8.6x slower"
+  },
+  "100000": {
+    "n_vectors": 100000,
+    "float_mem_mb": 153.6,
+    "binary_mem_mb": 51.2,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 146.67,
+    "binary_search_ms": 2961.06,
+    "vs_float": "20.2x slower"
+  },
+  "1000000": {
+    "n_vectors": 1000000,
+    "float_mem_mb": 1536.0,
+    "binary_mem_mb": 512.0,
+    "mem_ratio_x": 3.0,
+    "float_search_ms": 1127.44,
+    "binary_search_ms": 29765.67,
+    "vs_float": "26.4x slower"
+  }
+}
