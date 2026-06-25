@@ -42,25 +42,63 @@ def hamming_sim_matrix(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 # ── Bit diagnostics ───────────────────────────────────────────────────────────
 
 def bit_diagnostics(binary_vecs: np.ndarray) -> dict:
-    """binary_vecs: np.array (N, D), values in {-1, +1}"""
+    """
+    binary_vecs: np.array (N, D), values in {-1, +1}
+
+    Note: LayerNorm before STE guarantees balance≈0.5 and entropy≈1.0 by
+    construction — those metrics are uninformative for this architecture.
+    The meaningful signal is inter-bit correlation (redundancy).
+    """
+    N, D = binary_vecs.shape
     balance = (binary_vecs == 1).mean(axis=0)
     p = balance
     entropy = -p * np.log2(p + 1e-9) - (1 - p) * np.log2(1 - p + 1e-9)
     dead_bits = ((balance < 0.05) | (balance > 0.95)).sum()
-    print(f"    Bits morts       : {dead_bits} / {binary_vecs.shape[1]}")
-    print(f"    Entropie moyenne : {entropy.mean():.3f}  (idéal 1.0)")
-    print(f"    Balance moyenne  : {balance.mean():.3f}  (idéal 0.5)")
-    return {"dead_bits": int(dead_bits), "entropy": float(entropy.mean()),
-            "balance": float(balance.mean())}
+
+    # Inter-bit correlation — cap at 2048 bits to control memory (D×D matrix)
+    sample = binary_vecs[:, :min(D, 2048)].astype(np.float32)
+    sample -= sample.mean(axis=0)
+    std = sample.std(axis=0) + 1e-6
+    sample /= std
+    corr = (sample.T @ sample) / N          # (D', D') correlation matrix
+    d_ = corr.shape[0]
+    mask = ~np.eye(d_, dtype=bool)
+    off_diag = np.abs(corr[mask])
+    mean_corr = float(off_diag.mean())
+    max_corr  = float(off_diag.max())
+
+    print(f"    Bits morts           : {dead_bits} / {D}")
+    print(f"    Entropie moyenne     : {entropy.mean():.4f} ± {entropy.std():.4f}  (idéal 1.0)")
+    print(f"    Balance moyenne      : {balance.mean():.4f} ± {balance.std():.4f}  (idéal 0.5)")
+    print(f"    Corrélation inter-bits (|r|) : mean={mean_corr:.4f}  max={max_corr:.4f}  (idéal 0.0)")
+    if D > 2048:
+        print(f"    [corrélation calculée sur les 2048 premiers bits]")
+
+    return {
+        "dead_bits": int(dead_bits),
+        "entropy_mean": float(entropy.mean()),
+        "entropy_std":  float(entropy.std()),
+        "balance_mean": float(balance.mean()),
+        "balance_std":  float(balance.std()),
+        "mean_abs_corr": mean_corr,
+        "max_abs_corr":  max_corr,
+    }
 
 
-def run_bit_diagnostics(model, tokenizer) -> dict:
-    """Encode STS-B test sentences and run bit-level statistics."""
+def run_bit_diagnostics(model, tokenizer, n_samples=5000) -> dict:
+    """
+    Encode a diverse random sample of NLI sentences for bit-level statistics.
+    STS-B is unsuitable (semantically similar pairs → artificially smooth stats).
+    NLI covers 550k varied topics, giving an honest picture of bit utilization.
+    """
     from datasets import load_from_disk, load_dataset
-    cache = DATA_DIR / "sts_test"
+    cache = DATA_DIR / "nli_train"
     ds = load_from_disk(str(cache)) if cache.exists() else \
-         load_dataset("mteb/stsbenchmark-sts", split="test")
-    texts = list(ds["sentence1"]) + list(ds["sentence2"])
+         load_dataset("sentence-transformers/all-nli", "triplet", split="train")
+    rng = np.random.default_rng(42)
+    idx = rng.integers(0, len(ds), n_samples)
+    texts = [ds["anchor"][int(i)] for i in idx]
+    print(f"    corpus: NLI {n_samples} random samples")
     vecs = model.encode(texts, tokenizer).numpy()
     return bit_diagnostics(vecs)
 
@@ -323,14 +361,19 @@ def main(binary_dims=(2048, 4096)):
     # Bit diagnostics table (binary models only)
     binary_results = {n: r for n, r in results.items() if r["bit_diagnostics"]}
     if binary_results:
-        print("\n" + "=" * 70)
-        print(f"{'Model':<25} {'Dims':>6} {'Dead bits':>12} {'Entropy':>10} {'Balance':>10}")
-        print("-" * 70)
+        print("\n" + "=" * 95)
+        print(f"{'Model':<25} {'Dims':>6} {'Dead':>6} {'H mean':>8} {'H std':>7} {'Bal std':>8} {'|r| mean':>9} {'|r| max':>8}")
+        print("-" * 95)
         for name, r in binary_results.items():
             d = r["bit_diagnostics"]
-            print(f"{name:<25} {r['dims']:>6} {d['dead_bits']:>12} {d['entropy']:>10.3f} {d['balance']:>10.3f}")
-        print("=" * 70)
-        print("  ideal: dead_bits=0, entropy=1.000, balance=0.500")
+            print(
+                f"{name:<25} {r['dims']:>6} {d['dead_bits']:>6}"
+                f" {d['entropy_mean']:>8.4f} {d['entropy_std']:>7.4f}"
+                f" {d['balance_std']:>8.4f}"
+                f" {d['mean_abs_corr']:>9.4f} {d['max_abs_corr']:>8.4f}"
+            )
+        print("=" * 95)
+        print("  ideal: dead=0  H=1.0000  H_std>0 (dispersion)  bal_std>0  |r|_mean≈0  |r|_max≈0")
 
 
 if __name__ == "__main__":

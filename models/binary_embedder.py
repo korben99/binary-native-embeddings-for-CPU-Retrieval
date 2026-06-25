@@ -26,8 +26,8 @@ class BinaryEmbedder(nn.Module):
         pooled = self._mean_pool(out, attention_mask)
         projected = self.projection(pooled)          # pre-binarization logits
         if binarize_output:
-            return binarize(projected)               # {0,1}^4096
-        return projected                             # float, for loss computation
+            return binarize(projected)               # {-1,+1}^D
+        return projected                             # float logits, for loss computation
 
     def encode(self, texts, tokenizer, device="cpu", batch_size=64):
         self.eval()
@@ -41,6 +41,20 @@ class BinaryEmbedder(nn.Module):
                 embs = self.forward(enc["input_ids"], enc["attention_mask"], binarize_output=True)
             all_embs.append(embs.cpu())
         return torch.cat(all_embs, dim=0)
+
+
+def entropy_loss(tanh_acts):
+    """Force each bit to be balanced (~50% +1). Operates on tanh logits ∈ (-1,+1)."""
+    p = ((tanh_acts + 1) / 2).mean(dim=0)   # soft [0,1] probability per bit, differentiable
+    return ((p - 0.5) ** 2).mean()
+
+
+def decorr_loss(tanh_acts):
+    """Penalize inter-bit correlation (Barlow Twins style). O(batch × D²) memory."""
+    z = (tanh_acts - tanh_acts.mean(0)) / (tanh_acts.std(0) + 1e-6)
+    c = (z.T @ z) / z.shape[0]              # (D, D) correlation matrix
+    off_diag = c - torch.diag(torch.diag(c))
+    return (off_diag ** 2).sum() / z.shape[1]
 
 
 def binary_contrastive_loss(anchors_logits, positives_logits, temperature=0.05):

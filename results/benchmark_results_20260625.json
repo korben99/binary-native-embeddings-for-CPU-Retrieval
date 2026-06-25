@@ -6,9 +6,9 @@
     "scifact_recall10": 0.3131,
     "memory_1k_vecs": "1.46 MB",
     "latency_cpu": {
-      "mean_ms": 6.02,
-      "p50_ms": 5.64,
-      "p95_ms": 7.53
+      "mean_ms": 4.84,
+      "p50_ms": 4.88,
+      "p95_ms": 5.28
     },
     "bit_diagnostics": null
   },
@@ -19,9 +19,9 @@
     "scifact_recall10": 0.3097,
     "memory_1k_vecs": "1.46 MB",
     "latency_cpu": {
-      "mean_ms": 6.88,
-      "p50_ms": 6.75,
-      "p95_ms": 7.41
+      "mean_ms": 6.67,
+      "p50_ms": 6.59,
+      "p95_ms": 7.21
     },
     "bit_diagnostics": null,
     "q4_backend": "torchao INT8 (fallback)"
@@ -33,14 +33,39 @@
     "scifact_recall10": 0.2358,
     "memory_1k_vecs": "47 KB",
     "latency_cpu": {
-      "mean_ms": 5.21,
-      "p50_ms": 5.22,
-      "p95_ms": 5.76
+      "mean_ms": 5.69,
+      "p50_ms": 5.76,
+      "p95_ms": 6.76
     },
     "bit_diagnostics": {
       "dead_bits": 0,
-      "entropy": 0.9778504526137843,
-      "balance": 0.4990029006526469
+      "entropy_mean": 0.9785038179542341,
+      "entropy_std": 0.029875417489047925,
+      "balance_mean": 0.499084375,
+      "balance_std": 0.08567183369808719,
+      "mean_abs_corr": 0.07303310185670853,
+      "max_abs_corr": 0.39661023020744324
+    }
+  },
+  "binary_native_1024": {
+    "dims": 1024,
+    "dtype": "binary",
+    "stsb_spearman": 0.7256,
+    "scifact_recall10": 0.2925,
+    "memory_1k_vecs": "125 KB",
+    "latency_cpu": {
+      "mean_ms": 5.47,
+      "p50_ms": 5.47,
+      "p95_ms": 6.15
+    },
+    "bit_diagnostics": {
+      "dead_bits": 0,
+      "entropy_mean": 0.975329073843205,
+      "entropy_std": 0.029780200776641078,
+      "balance_mean": 0.5008890625,
+      "balance_std": 0.09180764983306725,
+      "mean_abs_corr": 0.07084549963474274,
+      "max_abs_corr": 0.9752058386802673
     }
   },
   "binary_native_2048": {
@@ -50,14 +75,18 @@
     "scifact_recall10": 0.2761,
     "memory_1k_vecs": "250 KB",
     "latency_cpu": {
-      "mean_ms": 5.55,
-      "p50_ms": 5.53,
-      "p95_ms": 6.06
+      "mean_ms": 6.34,
+      "p50_ms": 6.19,
+      "p95_ms": 7.53
     },
     "bit_diagnostics": {
       "dead_bits": 0,
-      "entropy": 0.9750828473399403,
-      "balance": 0.49996901768718277
+      "entropy_mean": 0.9763501311078728,
+      "entropy_std": 0.02929800776848729,
+      "balance_mean": 0.50019091796875,
+      "balance_std": 0.08989902547190351,
+      "mean_abs_corr": 0.07062672823667526,
+      "max_abs_corr": 0.9468417167663574
     }
   },
   "binary_native_4096": {
@@ -67,14 +96,18 @@
     "scifact_recall10": 0.2958,
     "memory_1k_vecs": "500 KB",
     "latency_cpu": {
-      "mean_ms": 5.63,
-      "p50_ms": 5.65,
-      "p95_ms": 6.28
+      "mean_ms": 7.44,
+      "p50_ms": 7.5,
+      "p95_ms": 8.22
     },
     "bit_diagnostics": {
       "dead_bits": 0,
-      "entropy": 0.9765706936573846,
-      "balance": 0.5006797519432107
+      "entropy_mean": 0.9773414098961624,
+      "entropy_std": 0.02737657144278967,
+      "balance_mean": 0.5004774902343749,
+      "balance_std": 0.08803779872889372,
+      "mean_abs_corr": 0.07014944404363632,
+      "max_abs_corr": 0.9620401263237
     }
   }
 }

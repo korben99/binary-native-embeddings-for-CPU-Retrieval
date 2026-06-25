@@ -25,16 +25,38 @@ Hardware: Mac Mini M4 Pro + Intel Core Ultra 7 155H, **CPU only**.
 ## Results — Embedding quality
 
 Evaluated on STS-B Spearman correlation and SciFact Recall@10.  
-Encode latency measured on CPU (batch=32, 100 runs).
+Encode latency measured on CPU (batch=32, 100 runs) — Mac Mini M4 Pro.
 
-| Model | Dims | Type | STS-B ↑ | R@10 ↑ | Memory/1k ↓ | Latency |
+| Model | Dims | BS | STS-B ↑ | R@10 ↑ | Memory/1k ↓ | Latency |
 |---|---|---|---|---|---|---|
-| Float baseline | 384 | float32 | 0.7355 | 0.3131 | 1.46 MB | 4.6 ms |
-| Post-hoc binary | 384 | binary | 0.7271 | 0.2358 | 48 KB | 4.4 ms |
-| Native binary | 2048 | binary | 0.7293 | 0.2761 | 250 KB | 4.6 ms |
-| Native binary | 4096 | binary | 0.7275 | 0.2958 | 500 KB | 4.6 ms |
+| Float baseline | 384 | 64 | 0.7355 | 0.3131 | 1.46 MB | 6.0 ms |
+| Float Q4 (INT8 fallback¹) | 384 | 64 | 0.7350 | 0.3097 | 1.46 MB | 6.9 ms |
+| Post-hoc binary | 384 | 64 | 0.7271 | 0.2358 | 47 KB | 5.2 ms |
+| **Native binary** | **1024** | **64** | **0.7256** | **0.2925** | **125 KB** | **5.5 ms** |
+| Native binary | 2048 | 64 | 0.7293 | 0.2761 | 250 KB | 6.3 ms |
+| Native binary | 4096 | 64 | 0.7275 | 0.2958 | 500 KB | 7.4 ms |
 
-**Encode latency is identical** across all models — it is dominated by the BERT forward pass, not the vector dimension.
+> ¹ `Int4WeightOnlyConfig` requires `mslk` on Apple Silicon — fallback to torchao INT8. Float Q4 does not change index memory (output remains float32 384-dim); gain is in encoding weight bandwidth. At bert-mini scale the model fits in L2 cache so the fallback shows no speedup.
+
+**Encode latency is near-identical** across binary models — dominated by the BERT forward pass, not the vector dimension.
+
+---
+
+## Ongoing experiments — 2048-dim quality improvement
+
+Goal: close the Recall@10 gap between native-2048 (0.2761) and native-4096 (0.2958).  
+Three levers tested independently, then combined.
+
+| Checkpoint | Dim | BS | T | λe | λd | STS-B | R@10 | Δ R@10 |
+|---|---|---|---|---|---|---|---|---|
+| `binary_embedder_2048` ← baseline | 2048 | 64 | 0.05 | 0 | 0 | 0.7293 | 0.2761 | — |
+| `binary_embedder_1024` | 1024 | 64 | 0.05 | 0 | 0 | — | — | — |
+| `binary_embedder_2048_bs256` | 2048 | 256 | 0.05 | 0 | 0 | — | — | — |
+| `binary_embedder_2048_t002` | 2048 | 64 | 0.02 | 0 | 0 | — | — | — |
+| `binary_embedder_2048_t010` | 2048 | 64 | 0.10 | 0 | 0 | — | — | — |
+| `binary_embedder_2048_reg` | 2048 | 64 | 0.05 | 0.1 | 0.01 | — | — | — |
+| `binary_embedder_2048_bs256_reg` | 2048 | 256 | 0.05 | 0.1 | 0.01 | — | — | — |
+| `binary_embedder_4096` ← target | 4096 | 64 | 0.05 | 0 | 0 | 0.7275 | 0.2958 | +0.0197 |
 
 ---
 
@@ -190,28 +212,69 @@ python smoke_test.py
 # All tests passed. Ready for full training.
 ```
 
-### 4 — Train
+### 4 — Train baselines
 
 ```bash
-python train.py --mode float  --epochs 3 --batch_size 64          # ~15 min M4 Pro
+# Float baseline (~15 min M4 Pro)
+python train.py --mode float --epochs 3 --batch_size 64
+
+# Native binary — standard dims
+python train.py --mode binary --epochs 3 --batch_size 64 --binary_dim 1024
 python train.py --mode binary --epochs 3 --batch_size 64 --binary_dim 2048
 python train.py --mode binary --epochs 3 --batch_size 64 --binary_dim 4096
 ```
 
 MPS (Apple Silicon) is used automatically. Add `--no_mps` to force CPU.
 
-### 5 — Benchmark quality
+### 5 — Train experiments (2048-dim quality sweep)
+
+Each run produces a distinct checkpoint — existing models are never overwritten.
+
 ```bash
-python benchmark.py --binary_dims 2048 4096
-# → results/benchmark_results.json
+# Lever 1 — batch size (more hard negatives)
+python train.py --mode binary --binary_dim 2048 --batch_size 256 --epochs 3 \
+    --tag bs256
+
+# Lever 2 — temperature sweep
+python train.py --mode binary --binary_dim 2048 --batch_size 64 --epochs 3 \
+    --temperature 0.02 --tag t002
+python train.py --mode binary --binary_dim 2048 --batch_size 64 --epochs 3 \
+    --temperature 0.10 --tag t010
+
+# Lever 3 — entropy + decorrelation regularization
+python train.py --mode binary --binary_dim 2048 --batch_size 64 --epochs 3 \
+    --lambda_e 0.1 --lambda_d 0.01 --tag reg
+
+# Combined best levers
+python train.py --mode binary --binary_dim 2048 --batch_size 256 --epochs 3 \
+    --lambda_e 0.1 --lambda_d 0.01 --tag bs256_reg
 ```
 
-### 6 — Benchmark retrieval at scale
+### 6 — Benchmark encoding quality
+
 ```bash
-# x86 with Python ≤3.12 (FAISS AVX2+POPCNT):
+python benchmark.py --binary_dims 1024 2048 4096
+# → results/benchmark_results_YYYYMMDD.json
+```
+
+To benchmark a specific experiment checkpoint, load it manually — or extend
+`benchmark.py --binary_dims` once experiment checkpoints are named in configs.
+
+### 7 — Benchmark retrieval speed at scale
+
+```bash
+# x86 only, Python ≤ 3.12, FAISS AVX2+POPCNT
 pip install faiss-cpu
-python benchmark_faiss.py --binary_dims 2048 4096
-# → results/retrieval_benchmark_amd64_faiss.json
+python benchmark_faiss.py --binary_dims 1024 2048 4096
+# → results/retrieval_benchmark_amd64_faiss_YYYYMMDD.json
+```
+
+### 8 — Q4 quantization diagnostic
+
+```bash
+pip install torchao
+python quantize_q4.py
+# reports: latency, STS-B delta, model weight memory
 ```
 
 ---
@@ -223,19 +286,20 @@ binary-native-embeddings/
 ├── README.md
 ├── requirements.txt
 ├── smoke_test.py              ← run first
-├── train.py                   ← --mode float|binary  --binary_dim N
-├── benchmark.py               ← quality: STS-B, Recall@10, latency
-├── benchmark_faiss.py         ← retrieval speed at scale
+├── train.py                   ← --mode --binary_dim --tag --temperature --lambda_e --lambda_d
+├── benchmark.py               ← encoding quality: STS-B, Recall@10, latency, bit diagnostics
+├── benchmark_faiss.py         ← retrieval speed at scale (x86 + FAISS only)
+├── quantize_q4.py             ← INT4/INT8 quantization diagnostic
 ├── publish_hf.py              ← push to HuggingFace Hub
 ├── models/
 │   ├── ste.py                 ← Straight-Through Estimator {-1,+1}
 │   ├── float_embedder.py      ← baseline + mnrl_loss
-│   └── binary_embedder.py     ← native binary + binary_contrastive_loss
+│   └── binary_embedder.py     ← binary_contrastive_loss + entropy_loss + decorr_loss
 ├── data/
 │   └── prepare.py
 └── results/
-    ├── benchmark_results.json
-    └── retrieval_benchmark_*.json
+    ├── benchmark_results_YYYYMMDD.json
+    └── retrieval_benchmark_*_YYYYMMDD.json
 ```
 
 ---

@@ -19,7 +19,7 @@ from transformers import BertTokenizer
 from datasets import load_from_disk, load_dataset
 
 from models.float_embedder import FloatEmbedder, mnrl_loss
-from models.binary_embedder import BinaryEmbedder, binary_contrastive_loss
+from models.binary_embedder import BinaryEmbedder, binary_contrastive_loss, entropy_loss, decorr_loss
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data_cache"
@@ -59,7 +59,8 @@ def tokenize(texts, tokenizer, device):
     ).to(device)
 
 
-def train(mode, epochs=3, batch_size=64, lr=2e-5, max_samples=None, no_mps=False, binary_dim=4096):
+def train(mode, epochs=3, batch_size=64, lr=2e-5, max_samples=None, no_mps=False,
+          binary_dim=4096, tag="", temperature=0.05, lambda_e=0.0, lambda_d=0.0):
     device = get_device(prefer_mps=not no_mps)
 
     tokenizer = BertTokenizer.from_pretrained("prajjwal1/bert-mini")
@@ -69,7 +70,8 @@ def train(mode, epochs=3, batch_size=64, lr=2e-5, max_samples=None, no_mps=False
         ckpt_name = "float_embedder.pt"
     else:
         model = BinaryEmbedder(binary_dim=binary_dim).to(device)
-        ckpt_name = f"binary_embedder_{binary_dim}.pt"
+        suffix = f"_{tag}" if tag else ""
+        ckpt_name = f"binary_embedder_{binary_dim}{suffix}.pt"
 
     # Load NLI dataset
     cache = DATA_DIR / "nli_train"
@@ -102,8 +104,10 @@ def train(mode, epochs=3, batch_size=64, lr=2e-5, max_samples=None, no_mps=False
     )
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    reg_info = f" | λe={lambda_e} λd={lambda_d} T={temperature}" if mode == "binary" else ""
     print(f"\nMode: {mode} | Params: {n_params/1e6:.1f}M | "
-          f"Samples: {len(ds):,} | Epochs: {epochs} | Batch: {batch_size} | LR: {lr}")
+          f"Samples: {len(ds):,} | Epochs: {epochs} | Batch: {batch_size} | LR: {lr}{reg_info}")
+    print(f"Checkpoint: {ckpt_name}")
 
     for epoch in range(epochs):
         model.train()
@@ -121,7 +125,14 @@ def train(mode, epochs=3, batch_size=64, lr=2e-5, max_samples=None, no_mps=False
             else:
                 a_logits = model(a_enc["input_ids"], a_enc["attention_mask"], binarize_output=False)
                 p_logits = model(p_enc["input_ids"], p_enc["attention_mask"], binarize_output=False)
-                loss = binary_contrastive_loss(a_logits, p_logits)
+                loss = binary_contrastive_loss(a_logits, p_logits, temperature=temperature)
+                if lambda_e > 0 or lambda_d > 0:
+                    a_tanh = torch.tanh(a_logits)
+                    p_tanh = torch.tanh(p_logits)
+                    if lambda_e > 0:
+                        loss = loss + lambda_e * (entropy_loss(a_tanh) + entropy_loss(p_tanh)) / 2
+                    if lambda_d > 0:
+                        loss = loss + lambda_d * (decorr_loss(a_tanh) + decorr_loss(p_tanh)) / 2
 
             optimizer.zero_grad()
             loss.backward()
@@ -161,5 +172,14 @@ if __name__ == "__main__":
                         help="Force CPU even on Apple Silicon")
     parser.add_argument("--binary_dim", type=int, default=4096,
                         help="Binary embedding dimension (e.g. 1024, 2048, 4096)")
+    parser.add_argument("--tag", type=str, default="",
+                        help="Suffix appended to checkpoint name, e.g. 'bs256' → binary_embedder_2048_bs256.pt")
+    parser.add_argument("--temperature", type=float, default=0.05,
+                        help="Contrastive loss temperature (default 0.05)")
+    parser.add_argument("--lambda_e", type=float, default=0.0,
+                        help="Entropy regularization weight (0=disabled, try 0.1)")
+    parser.add_argument("--lambda_d", type=float, default=0.0,
+                        help="Decorrelation regularization weight (0=disabled, try 0.01)")
     args = parser.parse_args()
-    train(args.mode, args.epochs, args.batch_size, args.lr, args.max_samples, args.no_mps, args.binary_dim)
+    train(args.mode, args.epochs, args.batch_size, args.lr, args.max_samples, args.no_mps,
+          args.binary_dim, args.tag, args.temperature, args.lambda_e, args.lambda_d)
