@@ -13,12 +13,13 @@ Hardware: Mac Mini M4 Pro + Intel Core Ultra 7 155H, **CPU only**.
 
 | Model | Dims | STS-B | Recall@10 | Memory/1k | Retrieval @ 1M (FAISS) |
 |---|---|---|---|---|---|
-| Float baseline | 384 | 0.736 | 0.313 | 1.46 MB | 3 601 ms |
-| Post-hoc binary | 384 | 0.727 | 0.236 | 48 KB | — |
-| **Native binary** | **2048** | **0.729** | **0.276** | **250 KB** | **292 ms (12x faster)** |
-| **Native binary** | **4096** | **0.728** | **0.296** | **500 KB** | **596 ms (6x faster)** |
+| Float baseline | 384 | 0.736 | 0.313 | 1.46 MB | 4 516 ms |
+| Post-hoc binary | 384 | 0.727 | 0.236 | 47 KB | — |
+| **Native binary** | **1024** | **0.726** | **0.293** | **125 KB** | **96 ms (47x faster)** |
+| Native binary | 2048 | 0.729 | 0.276 | 250 KB | 190 ms (24x faster) |
+| Native binary | 4096 | 0.728 | 0.296 | 500 KB | 411 ms (11x faster) |
 
-**Hypothesis validated**: native binary beats post-hoc on Recall@10 at every dimension (+17% at 2048, +25% at 4096), while retrieving 6–12× faster than float32 at scale.
+**Hypothesis validated**: native binary beats post-hoc on Recall@10 at every dimension (+24% at 1024, +17% at 2048, +25% at 4096), while retrieving up to **47× faster** than float32 at scale with a **12× smaller index** — all on CPU, no GPU.
 
 ---
 
@@ -65,19 +66,20 @@ Three levers tested independently, then combined.
 Intel Core Ultra 7 155H · FAISS `IndexBinaryFlat` (AVX2 + POPCNT) vs `IndexFlatIP`  
 16 queries · top-10 · averaged over 10 runs
 
-| Scale | Float (ms) | Bin-2048 (ms) | Bin-4096 (ms) | 2048 vs Float | 4096 vs Float |
-|---|---|---|---|---|---|
-| 10k | 47.9 | 2.2 | 4.4 | **21.8x faster** | **10.8x faster** |
-| 100k | 254.3 | 24.7 | 52.9 | **10.3x faster** | **4.8x faster** |
-| **1M** | **3 601** | **293** | **596** | **12.3x faster** | **6.0x faster** |
+| Scale | Float (ms) | Bin-1024 (ms) | Bin-2048 (ms) | Bin-4096 (ms) | 1024 vs Float | 2048 vs Float | 4096 vs Float |
+|---|---|---|---|---|---|---|---|
+| 10k | 45.9 | 1.2 | 2.1 | 4.2 | **37.3x** | **22.1x** | **10.9x** |
+| 100k | 258.9 | 12.1 | 27.3 | 51.9 | **21.4x** | **9.5x** | **5.0x** |
+| **1M** | **4 516** | **96** | **190** | **411** | **47.1x** | **23.8x** | **11.0x** |
 
 | Model | Memory @ 1M vecs | vs Float |
 |---|---|---|
 | Float 384 | 1 536 MB | — |
+| Binary 1024 | 128 MB | **12× smaller** |
 | Binary 2048 | 256 MB | **6× smaller** |
 | Binary 4096 | 512 MB | **3× smaller** |
 
-**2048-dim is the sweet spot**: 6× smaller index, 12× faster retrieval at 1M vectors, +17% Recall@10 over post-hoc — all on CPU, no GPU.
+**1024-dim is the sweet spot**: 12× smaller index, **47× faster retrieval at 1M vectors**, +24% Recall@10 over post-hoc — all on CPU, no GPU.
 
 > **Note:** float uses `IndexFlatIP` (cosine similarity) and binary uses `IndexBinaryFlat` (Hamming distance) — different metrics, but timings are comparable for measuring ranking latency at scale.
 
@@ -277,6 +279,34 @@ python quantize_q4.py
 # reports: latency, STS-B delta, model weight memory
 ```
 
+### 9 — Multi-seed consolidation (significance testing)
+
+Train 5 seeds × 2 dims overnight:
+
+```bash
+for seed in 42 123 456 789 1337; do
+    python train.py --mode binary --binary_dim 1024 --epochs 3 --batch_size 64 --seed $seed
+    python train.py --mode binary --binary_dim 2048 --epochs 3 --batch_size 64 --seed $seed
+done
+```
+
+Benchmark all seeds in one pass:
+
+```bash
+python benchmark.py \
+    --checkpoints 1024 1024_s123 1024_s456 1024_s789 1024_s1337 \
+                  2048 2048_s123 2048_s456 2048_s789 2048_s1337 \
+    --datasets scifact
+```
+
+Aggregate and run bootstrap significance tests:
+
+```bash
+python consolidate.py --pattern "results/benchmark_results_*.json" \
+    --compare 1024 2048 --datasets scifact
+# prints mean ± std table + p-values with significance stars
+```
+
 ---
 
 ## Project structure
@@ -290,6 +320,7 @@ binary-native-embeddings/
 ├── benchmark.py               ← encoding quality: STS-B, Recall@10, latency, bit diagnostics
 ├── benchmark_faiss.py         ← retrieval speed at scale (x86 + FAISS only)
 ├── quantize_q4.py             ← INT4/INT8 quantization diagnostic
+├── consolidate.py             ← aggregate multi-seed results, bootstrap significance
 ├── publish_hf.py              ← push to HuggingFace Hub
 ├── models/
 │   ├── ste.py                 ← Straight-Through Estimator {-1,+1}

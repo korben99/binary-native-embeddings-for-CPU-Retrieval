@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import BertTokenizer
@@ -60,7 +61,14 @@ def tokenize(texts, tokenizer, device):
 
 
 def train(mode, epochs=3, batch_size=64, lr=2e-5, max_samples=None, no_mps=False,
-          binary_dim=4096, tag="", temperature=0.05, lambda_e=0.0, lambda_d=0.0):
+          binary_dim=4096, tag="", temperature=0.05, lambda_e=0.0, lambda_d=0.0, seed=42):
+    import random
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
     device = get_device(prefer_mps=not no_mps)
 
     tokenizer = BertTokenizer.from_pretrained("prajjwal1/bert-mini")
@@ -70,8 +78,11 @@ def train(mode, epochs=3, batch_size=64, lr=2e-5, max_samples=None, no_mps=False
         ckpt_name = "float_embedder.pt"
     else:
         model = BinaryEmbedder(binary_dim=binary_dim).to(device)
-        suffix = f"_{tag}" if tag else ""
-        ckpt_name = f"binary_embedder_{binary_dim}{suffix}.pt"
+        parts = [tag] if tag else []
+        if seed != 42:
+            parts.append(f"s{seed}")
+        suffix = "_".join(parts)
+        ckpt_name = f"binary_embedder_{binary_dim}{'_' + suffix if suffix else ''}.pt"
 
     # Load NLI dataset
     cache = DATA_DIR / "nli_train"
@@ -180,6 +191,8 @@ if __name__ == "__main__":
                         help="Entropy regularization weight (0=disabled, try 0.1)")
     parser.add_argument("--lambda_d", type=float, default=0.0,
                         help="Decorrelation regularization weight (0=disabled, try 0.01)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed. If != 42, auto-appended to checkpoint name (e.g. _s123)")
     args = parser.parse_args()
     train(args.mode, args.epochs, args.batch_size, args.lr, args.max_samples, args.no_mps,
-          args.binary_dim, args.tag, args.temperature, args.lambda_e, args.lambda_d)
+          args.binary_dim, args.tag, args.temperature, args.lambda_e, args.lambda_d, args.seed)

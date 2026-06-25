@@ -148,35 +148,80 @@ def load_scifact():
         return None, None, None
 
 
-def eval_scifact_recall(model, tokenizer, use_binary=False, top_k=10):
-    corpus, queries, qrels = load_scifact()
-    if corpus is None:
-        return None
-
-    # corpus = {doc_id: {"title": ..., "text": ...}}
-    doc_ids = list(corpus.keys())
-    doc_texts = [f"{corpus[d].get('title','')} {corpus[d].get('text','')}".strip()
+def _recall_from_corpus(model, tokenizer, corpus, queries, qrels, use_binary=False, top_k=10):
+    """Shared recall computation. Returns (mean_recall, per_query_recalls)."""
+    doc_ids   = list(corpus.keys())
+    doc_texts = [f"{corpus[d].get('title','') } {corpus[d].get('text','') }".strip()
                  for d in doc_ids]
-
     valid_qids = [qid for qid in queries if qid in qrels]
-    q_texts = [queries[qid] for qid in valid_qids]
+    q_texts    = [queries[qid] for qid in valid_qids]
 
     print(f"  Encoding {len(doc_texts):,} docs...")
     corpus_embs = model.encode(doc_texts, tokenizer)
     print(f"  Encoding {len(q_texts)} queries...")
-    query_embs = model.encode(q_texts, tokenizer)
+    query_embs  = model.encode(q_texts, tokenizer)
 
     sim_fn = hamming_sim_matrix if use_binary else cosine_sim_matrix
-
     recalls = []
     for i, qid in enumerate(valid_qids):
-        sims = sim_fn(query_embs[i : i + 1], corpus_embs)[0]
+        sims    = sim_fn(query_embs[i:i+1], corpus_embs)[0]
         top_idx = sims.topk(min(top_k, len(doc_ids))).indices.tolist()
         retrieved = {doc_ids[j] for j in top_idx}
-        relevant = set(qrels[qid].keys())
+        relevant  = set(qrels[qid].keys())
         recalls.append(len(retrieved & relevant) / max(len(relevant), 1))
 
-    return float(np.mean(recalls))
+    return float(np.mean(recalls)), recalls
+
+
+def eval_scifact_recall(model, tokenizer, use_binary=False, top_k=10):
+    corpus, queries, qrels = load_scifact()
+    if corpus is None:
+        return None, None
+    return _recall_from_corpus(model, tokenizer, corpus, queries, qrels, use_binary, top_k)
+
+
+def eval_beir_recall(model, tokenizer, dataset_name, use_binary=False, top_k=10):
+    """
+    Generic BEIR dataset evaluation. Downloads on first run, caches locally.
+    Recommended: 'scidocs' (1000 queries, 25k docs), 'nfcorpus' (323 queries, 3.6k docs).
+    Returns (mean_recall, per_query_recalls) or (None, None) on failure.
+    """
+    beir_dir = DATA_DIR / "beir" / dataset_name
+    try:
+        from beir.datasets.data_loader import GenericDataLoader
+        if not beir_dir.exists():
+            from beir import util
+            url = (f"https://public.ukp.informatik.tu-darmstadt.de"
+                   f"/thakur/BEIR/datasets/{dataset_name}.zip")
+            print(f"  Downloading {dataset_name}...")
+            util.download_and_unzip(url, str(DATA_DIR / "beir"))
+        corpus, queries, qrels = GenericDataLoader(str(beir_dir)).load(split="test")
+    except Exception as e:
+        print(f"  {dataset_name} unavailable: {e}")
+        return None, None
+    return _recall_from_corpus(model, tokenizer, corpus, queries, qrels, use_binary, top_k)
+
+
+# ── Bootstrap significance test ───────────────────────────────────────────────
+
+def bootstrap_recall_diff(per_query_a, per_query_b, n_boot=2000, seed=0):
+    """
+    Two-sided bootstrap test: is mean(a) - mean(b) significantly ≠ 0?
+    per_query_a/b : lists of per-query recall values (same queries, same order).
+    Returns dict with diff, p_value, ci_95.
+    """
+    a   = np.array(per_query_a, dtype=float)
+    b   = np.array(per_query_b, dtype=float)
+    obs = float(a.mean() - b.mean())
+    rng = np.random.default_rng(seed)
+    n   = len(a)
+    boot_diffs = np.array([
+        a[rng.integers(0, n, n)].mean() - b[rng.integers(0, n, n)].mean()
+        for _ in range(n_boot)
+    ])
+    p = float((boot_diffs <= 0).mean() if obs > 0 else (boot_diffs >= 0).mean())
+    ci = (float(np.percentile(boot_diffs, 2.5)), float(np.percentile(boot_diffs, 97.5)))
+    return {"diff": round(obs, 5), "p_value": round(p, 4), "ci_95": ci, "n_queries": n}
 
 
 # ── Latency ───────────────────────────────────────────────────────────────────
@@ -267,13 +312,7 @@ def _parse_suffix(suffix: str) -> int:
     return int(suffix.split("_")[0])
 
 
-def main(checkpoints=("2048", "4096")):
-    """
-    checkpoints: list of checkpoint suffixes.
-      "1024"        → binary_embedder_1024.pt,       label binary_native_1024
-      "1024_bs256"  → binary_embedder_1024_bs256.pt,  label binary_native_1024_bs256
-      "1024_reg"    → binary_embedder_1024_reg.pt,    label binary_native_1024_reg
-    """
+def main(checkpoints=("2048", "4096"), datasets=("scifact",)):
     from models.float_embedder import FloatEmbedder
     from models.binary_embedder import BinaryEmbedder
 
@@ -324,8 +363,17 @@ def main(checkpoints=("2048", "4096")):
         print("  STS-B Spearman...")
         stsb = eval_stsb(model, tokenizer, use_binary=use_binary)
 
-        print("  SciFact Recall@10...")
-        scifact = eval_scifact_recall(model, tokenizer, use_binary=use_binary)
+        dataset_results = {}
+        for ds_name in datasets:
+            print(f"  Recall@10 [{ds_name}]...")
+            if ds_name == "scifact":
+                mean_r, per_q = eval_scifact_recall(model, tokenizer, use_binary=use_binary)
+            else:
+                mean_r, per_q = eval_beir_recall(model, tokenizer, ds_name, use_binary=use_binary)
+            dataset_results[ds_name] = {
+                "recall10": round(mean_r, 4) if mean_r is not None else None,
+                "per_query": per_q,
+            }
 
         print("  CPU latency (batch=32, 100 runs)...")
         lat = benchmark_latency(model, tokenizer)
@@ -336,19 +384,26 @@ def main(checkpoints=("2048", "4096")):
             bit_diag = run_bit_diagnostics(model, tokenizer)
 
         dtype = "binary" if is_binary else ("float32_q4" if "q4" in name else "float32")
+        # primary recall = first dataset for backward compat
+        primary_ds   = datasets[0]
+        primary_r10  = dataset_results[primary_ds]["recall10"]
         results[name] = {
             "dims": dim,
             "dtype": dtype,
             "stsb_spearman": round(stsb, 4),
-            "scifact_recall10": round(scifact, 4) if scifact is not None else None,
+            "scifact_recall10": dataset_results.get("scifact", {}).get("recall10"),
+            "recall_by_dataset": {k: v["recall10"] for k, v in dataset_results.items()},
+            "per_query_by_dataset": {k: v["per_query"] for k, v in dataset_results.items()},
             "memory_1k_vecs": memory_per_1k(dim, is_binary),
             "latency_cpu": lat,
             "bit_diagnostics": bit_diag,
             **({"q4_backend": model._backend} if hasattr(model, "_backend") else {}),
         }
 
-        r10 = f"{scifact:.4f}" if scifact is not None else "N/A"
-        print(f"  STS-B={stsb:.4f}  R@10={r10}  lat={lat['mean_ms']}ms")
+        r10_str = "  ".join(
+            f"{k}={v['recall10']:.4f}" for k, v in dataset_results.items() if v["recall10"]
+        )
+        print(f"  STS-B={stsb:.4f}  {r10_str}  lat={lat['mean_ms']}ms")
 
     RESULTS_DIR.mkdir(exist_ok=True)
     from datetime import date
@@ -391,9 +446,11 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoints", type=str, nargs="+", default=None,
-                        help="Checkpoint suffixes, e.g. '1024' '1024_bs256' '1024_reg' '2048'")
+                        help="Checkpoint suffixes, e.g. '1024' '1024_s42' '1024_s123' '2048'")
     parser.add_argument("--binary_dims", type=int, nargs="+", default=None,
                         help="Shorthand: --binary_dims 1024 2048 → same as --checkpoints 1024 2048")
+    parser.add_argument("--datasets", type=str, nargs="+", default=["scifact"],
+                        help="BEIR datasets to evaluate, e.g. 'scifact scidocs nfcorpus'")
     args = parser.parse_args()
 
     if args.checkpoints:
@@ -403,4 +460,4 @@ if __name__ == "__main__":
     else:
         checkpoints = ["2048", "4096"]
 
-    main(checkpoints=checkpoints)
+    main(checkpoints=checkpoints, datasets=tuple(args.datasets))
