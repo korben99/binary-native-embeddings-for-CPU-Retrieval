@@ -1,0 +1,88 @@
+{
+  "platform": "EU-H3JH294 | Intel64 Family 6 Model 170 Stepping 4, GenuineIntel | Python 3.12.10 | FAISS (AVX2+POPCNT)",
+  "backend": "FAISS (AVX2+POPCNT)",
+  "10000": {
+    "n_vectors": 10000,
+    "float_mem_mb": 15.4,
+    "float_search_ms": 45.92,
+    "binary": {
+      "1024": {
+        "dim": 1024,
+        "binary_mem_mb": 1.3,
+        "mem_ratio_x": 12.0,
+        "binary_search_ms": 1.23,
+        "vs_float": "37.3x faster"
+      },
+      "2048": {
+        "dim": 2048,
+        "binary_mem_mb": 2.6,
+        "mem_ratio_x": 6.0,
+        "binary_search_ms": 2.07,
+        "vs_float": "22.1x faster"
+      },
+      "4096": {
+        "dim": 4096,
+        "binary_mem_mb": 5.1,
+        "mem_ratio_x": 3.0,
+        "binary_search_ms": 4.2,
+        "vs_float": "10.9x faster"
+      }
+    }
+  },
+  "100000": {
+    "n_vectors": 100000,
+    "float_mem_mb": 153.6,
+    "float_search_ms": 258.91,
+    "binary": {
+      "1024": {
+        "dim": 1024,
+        "binary_mem_mb": 12.8,
+        "mem_ratio_x": 12.0,
+        "binary_search_ms": 12.1,
+        "vs_float": "21.4x faster"
+      },
+      "2048": {
+        "dim": 2048,
+        "binary_mem_mb": 25.6,
+        "mem_ratio_x": 6.0,
+        "binary_search_ms": 27.33,
+        "vs_float": "9.5x faster"
+      },
+      "4096": {
+        "dim": 4096,
+        "binary_mem_mb": 51.2,
+        "mem_ratio_x": 3.0,
+        "binary_search_ms": 51.91,
+        "vs_float": "5.0x faster"
+      }
+    }
+  },
+  "1000000": {
+    "n_vectors": 1000000,
+    "float_mem_mb": 1536.0,
+    "float_search_ms": 4516.0,
+    "binary": {
+      "1024": {
+        "dim": 1024,
+        "binary_mem_mb": 128.0,
+        "mem_ratio_x": 12.0,
+        "binary_search_ms": 95.97,
+        "vs_float": "47.1x faster"
+      },
+      "2048": {
+        "dim": 2048,
+        "binary_mem_mb": 256.0,
+        "mem_ratio_x": 6.0,
+        "binary_search_ms": 189.87,
+        "vs_float": "23.8x faster"
+      },
+      "4096": {
+        "dim": 4096,
+        "binary_mem_mb": 512.0,
+        "mem_ratio_x": 3.0,
+        "binary_search_ms": 410.7,
+        "vs_float": "11.0x faster"
+      }
+    }
+  }
+}
