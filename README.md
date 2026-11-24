@@ -13,7 +13,7 @@ Hardware: Mac Mini M4 Pro + Intel Core Ultra 7 155H, **CPU only — no GPU invol
 
 **Train binary. Don't binarize float.**
 
-Native binary embeddings score **+24% Recall@10** over post-hoc binarization, validated across 5 random seeds. The 1024-dim model is **37–49× faster than float INT8** and **20–47× faster than float32** at 1M vectors, with a 12× smaller index — all on CPU, no GPU.
+Native binary embeddings score **+24% Recall@10** over post-hoc binarization, validated across 5 random seeds. The 1024-dim model is **37–49× faster than float INT8** and **24–47× faster than float32** at 1M vectors, with a 12× smaller index — all on CPU, no GPU.
 
 | Model | Dims | R@10 (5 seeds) | Memory/1k | FAISS @ 1M |
 |---|---|---|---|---|
